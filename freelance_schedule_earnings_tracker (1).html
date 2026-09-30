@@ -1,0 +1,754 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Freelance Schedule & Earnings Tracker</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6; /* bg-gray-100 */
+        }
+        /* Custom scrollbar for a cleaner look */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1; 
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #c1c1c1; 
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #a8a8a8; 
+        }
+        
+        .toast-enter {
+            opacity: 0;
+            transform: translateY(-20px);
+        }
+        .toast-enter-active {
+            opacity: 1;
+            transform: translateY(0);
+            transition: opacity 300ms, transform 300ms;
+        }
+        .toast-exit {
+            opacity: 1;
+        }
+        .toast-exit-active {
+            opacity: 0;
+            transition: opacity 300ms;
+        }
+    </style>
+</head>
+<body class="text-gray-800 antialiased min-h-screen flex flex-col">
+
+    <header class="bg-indigo-600 text-white shadow-md">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
+            <h1 class="text-xl font-bold flex items-center gap-2">
+                <i class="fas fa-clock"></i> Freelance Tracker
+            </h1>
+            <div class="text-sm font-medium opacity-90">
+                Plan, Track, Earn
+            </div>
+        </div>
+    </header>
+
+    <main class="flex-grow max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full flex flex-col lg:flex-row gap-8">
+        
+        <!-- Left Column: Input Form -->
+        <div class="w-full lg:w-1/3">
+            <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 sticky top-8">
+                <h2 class="text-lg font-semibold text-gray-900 mb-4 border-b pb-2">Add New Entry</h2>
+                
+                <form id="entryForm" class="space-y-4">
+                    <div>
+                        <label for="workDate" class="block text-sm font-medium text-gray-700 mb-1">Date</label>
+                        <input type="date" id="workDate" required
+                            class="w-full rounded-md border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors">
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div>
+                            <label for="startTime" class="block text-sm font-medium text-gray-700 mb-1">Start Time</label>
+                            <input type="time" id="startTime" required
+                                class="w-full rounded-md border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors">
+                        </div>
+                        <div>
+                            <label for="endTime" class="block text-sm font-medium text-gray-700 mb-1">End Time</label>
+                            <input type="time" id="endTime" required
+                                class="w-full rounded-md border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors">
+                        </div>
+                        <div>
+                            <label for="timezone" class="block text-sm font-medium text-gray-700 mb-1">Timezone</label>
+                            <select id="timezone" class="w-full rounded-md border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors bg-white">
+                                <option value="UTC">UTC</option>
+                                <option value="PHT">PHT</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="flex items-center">
+                        <input type="checkbox" id="lunchBreak" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded">
+                        <label for="lunchBreak" class="ml-2 block text-sm text-gray-700">
+                            Deduct 1 hour for lunch
+                        </label>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Calculated Hours</label>
+                            <div id="displayHours" class="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-gray-600 font-semibold">0.00</div>
+                        </div>
+                        <div>
+                            <label for="hourlyRate" class="block text-sm font-medium text-gray-700 mb-1">Rate ($/hr)</label>
+                            <input type="number" id="hourlyRate" step="0.01" min="0" placeholder="e.g., 15.50" required
+                                class="w-full rounded-md border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors">
+                        </div>
+                    </div>
+
+                    <div>
+                        <label for="notes" class="block text-sm font-medium text-gray-700 mb-1">Notes (Optional)</label>
+                        <input type="text" id="notes" placeholder="e.g., Holiday pay, Morning shift"
+                            class="w-full rounded-md border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors">
+                    </div>
+
+                    <button type="submit"
+                        class="w-full bg-indigo-600 text-white font-medium py-2 px-4 rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors flex items-center justify-center gap-2 mt-2">
+                        <i class="fas fa-plus"></i> Add Entry
+                    </button>
+                </form>
+
+                <div class="mt-8 pt-6 border-t border-gray-100">
+                    <div class="flex justify-between items-center mb-3">
+                        <h3 class="text-sm font-semibold text-gray-500 uppercase tracking-wider">Summary</h3>
+                        <div class="flex items-center gap-2">
+                            <label for="exchangeRate" class="text-xs text-gray-500">1 USD = ₱</label>
+                            <input type="number" id="exchangeRate" step="0.01" min="0" class="w-20 text-xs rounded border border-gray-300 px-2 py-1 focus:ring-indigo-500 focus:border-indigo-500" value="56.00">
+                            <button type="button" id="fetchRateBtn" class="text-xs text-indigo-600 hover:text-indigo-800 transition-colors" title="Fetch latest rate">
+                                <i class="fas fa-sync-alt"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="bg-indigo-50 rounded-lg p-4 grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div>
+                            <p class="text-xs text-indigo-600 font-medium mb-1">Total Hours</p>
+                            <p class="text-2xl font-bold text-gray-900" id="summaryHours">0.00</p>
+                        </div>
+                        <div>
+                            <p class="text-xs text-green-600 font-medium mb-1">Total Expected</p>
+                            <p class="text-2xl font-bold text-gray-900" id="summaryTotal">$0.00</p>
+                        </div>
+                        <div>
+                            <p class="text-xs text-blue-600 font-medium mb-1">Est. in Peso</p>
+                            <p class="text-2xl font-bold text-gray-900" id="summaryTotalPHP">₱0.00</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Column: Data Table -->
+        <div class="w-full lg:w-2/3 flex flex-col h-full">
+            <div class="bg-white rounded-xl shadow-sm border border-gray-100 flex flex-col overflow-hidden h-full">
+                
+                <div class="px-6 py-4 border-b border-gray-200 flex justify-between items-center bg-gray-50/50">
+                    <h2 class="text-lg font-semibold text-gray-900">Logged Shifts</h2>
+                    <div class="flex gap-2">
+                        <button onclick="clearData()" title="Clear all data"
+                            class="text-gray-500 hover:text-red-600 px-3 py-1.5 rounded-md hover:bg-red-50 text-sm font-medium transition-colors border border-transparent hover:border-red-200 flex items-center gap-1">
+                            <i class="fas fa-trash-alt"></i> Clear
+                        </button>
+                        <button onclick="copyToClipboard()" 
+                            class="bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 px-4 py-1.5 rounded-md text-sm font-medium shadow-sm transition-colors flex items-center gap-2">
+                            <i class="fas fa-copy"></i> Copy Data
+                        </button>
+                    </div>
+                </div>
+
+                <div class="overflow-x-auto flex-grow">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-28">Date</th>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-40">Shift</th>
+                                <th scope="col" class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider w-20">Hours</th>
+                                <th scope="col" class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider w-24">Rate</th>
+                                <th scope="col" class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider w-28">Total</th>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Notes</th>
+                                <th scope="col" class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider w-16"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="entriesTableBody" class="bg-white divide-y divide-gray-200">
+                            <!-- Entries will be populated here by JS -->
+                        </tbody>
+                    </table>
+                </div>
+                
+                <!-- Empty State (hidden by default) -->
+                <div id="emptyState" class="flex-grow flex flex-col items-center justify-center py-16 px-4 text-center">
+                    <div class="h-16 w-16 bg-gray-100 rounded-full flex items-center justify-center mb-4 text-gray-400">
+                        <i class="fas fa-clipboard-list text-2xl"></i>
+                    </div>
+                    <h3 class="text-sm font-medium text-gray-900 mb-1">No shifts logged yet</h3>
+                    <p class="text-sm text-gray-500 max-w-sm">Use the form on the left to add your work hours and rates. Your data is saved automatically.</p>
+                </div>
+
+            </div>
+            
+            <div class="mt-4 text-xs text-gray-500 text-center">
+                <i class="fas fa-info-circle mr-1"></i> Data is saved locally in your browser. Copy it before clearing cookies.
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Toast Notification Container -->
+    <div id="toastContainer" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2"></div>
+
+    <script>
+        // State management
+        let entries = [];
+        let nextId = 1;
+
+        // DOM Elements
+        const form = document.getElementById('entryForm');
+        const dateInput = document.getElementById('workDate');
+        const startTimeInput = document.getElementById('startTime');
+        const endTimeInput = document.getElementById('endTime');
+        const timezoneInput = document.getElementById('timezone');
+        const lunchBreakInput = document.getElementById('lunchBreak');
+        const displayHours = document.getElementById('displayHours');
+        const rateInput = document.getElementById('hourlyRate');
+        const notesInput = document.getElementById('notes');
+        const tableBody = document.getElementById('entriesTableBody');
+        const emptyState = document.getElementById('emptyState');
+        const summaryHours = document.getElementById('summaryHours');
+        const summaryTotal = document.getElementById('summaryTotal');
+        const summaryTotalPHP = document.getElementById('summaryTotalPHP');
+        const exchangeRateInput = document.getElementById('exchangeRate');
+        const fetchRateBtn = document.getElementById('fetchRateBtn');
+        const toastContainer = document.getElementById('toastContainer');
+
+        let currentExchangeRate = 56.00;
+
+        // Set default date to today
+        dateInput.valueAsDate = new Date();
+
+        // Load data from LocalStorage on start
+        function loadData() {
+            try {
+                const saved = localStorage.getItem('freelanceTrackerData');
+                const savedRate = localStorage.getItem('freelanceExchangeRate');
+                
+                if (savedRate) {
+                    currentExchangeRate = parseFloat(savedRate);
+                    exchangeRateInput.value = currentExchangeRate.toFixed(2);
+                } else {
+                    // Fetch real rate if none saved
+                    fetchLatestExchangeRate();
+                }
+
+                if (saved) {
+                    entries = JSON.parse(saved);
+                    // Update nextId based on highest existing ID
+                    if (entries.length > 0) {
+                        nextId = Math.max(...entries.map(e => e.id)) + 1;
+                    }
+                    // Sort entries by date (newest first)
+                    sortEntries();
+                }
+            } catch (e) {
+                console.error("Error loading data from local storage", e);
+                showToast("Failed to load saved data", "error");
+            }
+            renderTable();
+            updateSummary();
+        }
+
+        // Save data to LocalStorage
+        function saveData() {
+            try {
+                localStorage.setItem('freelanceTrackerData', JSON.stringify(entries));
+            } catch (e) {
+                console.error("Error saving data to local storage", e);
+                showToast("Failed to save data locally", "error");
+            }
+        }
+
+        // Sort entries newest date first
+        function sortEntries() {
+            entries.sort((a, b) => new Date(b.date) - new Date(a.date));
+        }
+
+        // Format currency
+        function formatCurrency(amount) {
+            return new Intl.NumberFormat('en-US', {
+                style: 'currency',
+                currency: 'USD'
+            }).format(amount);
+        }
+
+        // Format Date for display
+        function formatDate(dateString) {
+            const options = { weekday: 'short', month: 'short', day: 'numeric' };
+            // Need to fix timezone offset issues with simple date strings
+            const date = new Date(dateString + 'T00:00:00'); 
+            return date.toLocaleDateString('en-US', options);
+        }
+
+        // Format Time (24h to 12h AM/PM)
+        function formatTime(time24) {
+            if (!time24) return "";
+            const [h, m] = time24.split(':');
+            let hours = parseInt(h, 10);
+            const ampm = hours >= 12 ? 'PM' : 'AM';
+            hours = hours % 12;
+            hours = hours ? hours : 12; 
+            return `${hours}:${m} ${ampm}`;
+        }
+
+        // Calculate hours based on inputs
+        function calculateHours() {
+            const start = startTimeInput.value;
+            const end = endTimeInput.value;
+            if(!start || !end) {
+                displayHours.textContent = "0.00";
+                return 0;
+            }
+            
+            const [startH, startM] = start.split(':').map(Number);
+            const [endH, endM] = end.split(':').map(Number);
+            
+            let startDecimal = startH + (startM / 60);
+            let endDecimal = endH + (endM / 60);
+            
+            // Handle shifts crossing midnight
+            if (endDecimal < startDecimal) {
+                endDecimal += 24; 
+            }
+            
+            let totalHours = endDecimal - startDecimal;
+            if (lunchBreakInput.checked) {
+                totalHours -= 1;
+            }
+            
+            // Prevent negative hours
+            totalHours = Math.max(0, totalHours); 
+            
+            displayHours.textContent = totalHours.toFixed(2);
+            return totalHours;
+        }
+
+        // Add event listeners for auto-calculating hours
+        startTimeInput.addEventListener('input', calculateHours);
+        endTimeInput.addEventListener('input', calculateHours);
+        lunchBreakInput.addEventListener('change', calculateHours);
+        
+        // Handle Form Submission
+        form.addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const hours = calculateHours();
+            const rate = parseFloat(rateInput.value);
+            
+            if (hours <= 0) {
+                showToast("Calculated hours must be greater than 0.", "error");
+                return;
+            }
+
+            if (isNaN(rate)) {
+                showToast("Please enter a valid rate.", "error");
+                return;
+            }
+
+            const newEntry = {
+                id: nextId++,
+                date: dateInput.value,
+                startTime: startTimeInput.value,
+                endTime: endTimeInput.value,
+                timezone: timezoneInput.value,
+                hadLunch: lunchBreakInput.checked,
+                hours: hours,
+                rate: rate,
+                total: hours * rate,
+                notes: notesInput.value.trim()
+            };
+
+            entries.push(newEntry);
+            sortEntries();
+            saveData();
+            
+            renderTable();
+            updateSummary();
+            
+            // Reset some inputs, keep others for convenience
+            notesInput.value = '';
+            // keep rate usually stays the same
+            showToast("Shift logged successfully!");
+            
+            // Optional: Auto-increment date for ease of entering back-to-back days
+            // let currentDate = new Date(dateInput.value);
+            // currentDate.setDate(currentDate.getDate() + 1);
+            // dateInput.value = currentDate.toISOString().split('T')[0];
+        });
+
+        // Delete an entry
+        function deleteEntry(id) {
+            if(confirm("Are you sure you want to delete this entry?")) {
+                entries = entries.filter(entry => entry.id !== id);
+                saveData();
+                renderTable();
+                updateSummary();
+                showToast("Entry deleted");
+            }
+        }
+
+        // Clear all data
+        function clearData() {
+            if(entries.length === 0) return;
+            
+            if(confirm("WARNING: This will delete all your logged shifts permanently. Are you sure?")) {
+                entries = [];
+                nextId = 1;
+                saveData();
+                renderTable();
+                updateSummary();
+                showToast("All data cleared");
+            }
+        }
+
+        // Update Summary Widget
+        function updateSummary() {
+            let totalHrs = 0;
+            let totalVal = 0;
+            
+            entries.forEach(entry => {
+                totalHrs += entry.hours;
+                totalVal += entry.total;
+            });
+            
+            summaryHours.textContent = totalHrs.toFixed(2);
+            summaryTotal.textContent = formatCurrency(totalVal);
+            
+            const totalPHP = totalVal * currentExchangeRate;
+            summaryTotalPHP.textContent = new Intl.NumberFormat('en-PH', {
+                style: 'currency',
+                currency: 'PHP'
+            }).format(totalPHP);
+        }
+
+        // Helper to group by week (starting Monday)
+        function getWeekInfo(dateString) {
+            const d = new Date(dateString + 'T00:00:00');
+            const day = d.getDay();
+            const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Adjust when day is sunday
+            const monday = new Date(d.setDate(diff));
+            const sunday = new Date(monday);
+            sunday.setDate(monday.getDate() + 6);
+            
+            const options = { month: 'short', day: 'numeric' };
+            return {
+                key: monday.toISOString().split('T')[0],
+                label: `${monday.toLocaleDateString('en-US', options)} - ${sunday.toLocaleDateString('en-US', options)}`
+            };
+        }
+
+        // Render Table Data
+        function renderTable() {
+            tableBody.innerHTML = '';
+            
+            if (entries.length === 0) {
+                emptyState.style.display = 'flex';
+                tableBody.parentElement.style.display = 'none';
+                return;
+            }
+            
+            emptyState.style.display = 'none';
+            tableBody.parentElement.style.display = 'table';
+            
+            // Group entries by week
+            const weeks = {};
+            entries.forEach(entry => {
+                const weekInfo = getWeekInfo(entry.date);
+                if (!weeks[weekInfo.key]) {
+                    weeks[weekInfo.key] = {
+                        label: weekInfo.label,
+                        entries: [],
+                        totalHours: 0,
+                        totalUSD: 0
+                    };
+                }
+                weeks[weekInfo.key].entries.push(entry);
+                weeks[weekInfo.key].totalHours += entry.hours;
+                weeks[weekInfo.key].totalUSD += entry.total;
+            });
+
+            // Sort weeks descending (newest week first)
+            const sortedWeekKeys = Object.keys(weeks).sort((a, b) => new Date(b) - new Date(a));
+
+            sortedWeekKeys.forEach(key => {
+                const week = weeks[key];
+                const totalPHP = week.totalUSD * currentExchangeRate;
+                
+                // Add Week Header Row
+                const weekHeader = document.createElement('tr');
+                weekHeader.className = "bg-indigo-50/60 border-y border-indigo-100";
+                weekHeader.innerHTML = `
+                    <td colspan="7" class="px-6 py-3">
+                        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center w-full gap-2">
+                            <span class="font-semibold text-indigo-800 text-sm"><i class="fas fa-calendar-week mr-2"></i>Week of ${week.label}</span>
+                            <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs sm:text-sm">
+                                <span class="text-gray-600 font-medium">Hours: <span class="text-gray-900 font-bold">${week.totalHours.toFixed(2)}</span></span>
+                                <span class="text-green-600 font-medium">USD: <span class="text-green-700 font-bold">${formatCurrency(week.totalUSD)}</span></span>
+                                <span class="text-blue-600 font-medium">PHP: <span class="text-blue-700 font-bold">₱${totalPHP.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></span>
+                            </div>
+                        </div>
+                    </td>
+                `;
+                tableBody.appendChild(weekHeader);
+
+                // Add entries for this week
+                week.entries.forEach(entry => {
+                    const tr = document.createElement('tr');
+                    tr.className = "hover:bg-gray-50 transition-colors group";
+                    
+                    let shiftDisplay = "Manual Entry";
+                    let secondaryShiftDisplay = "";
+
+                    if (entry.startTime && entry.endTime) {
+                        const tz = entry.timezone || 'UTC';
+                        const oppositeTz = tz === 'UTC' ? 'PHT' : 'UTC';
+                        const offset = tz === 'UTC' ? 8 : -8;
+
+                        const convertTz = (time24) => {
+                            let [h, m] = time24.split(':').map(Number);
+                            h = (h + offset + 24) % 24;
+                            return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+                        };
+
+                        const startOpposite = convertTz(entry.startTime);
+                        const endOpposite = convertTz(entry.endTime);
+
+                        shiftDisplay = `<div class="font-medium text-gray-900">${formatTime(entry.startTime)} - ${formatTime(entry.endTime)} <span class="text-xs bg-gray-200 text-gray-700 px-1.5 py-0.5 rounded ml-1">${tz}</span></div>`;
+                        secondaryShiftDisplay = `<div class="text-xs text-gray-500 mt-1 flex items-center gap-1"><i class="fas fa-globe-asia text-gray-400"></i> ${formatTime(startOpposite)} - ${formatTime(endOpposite)} ${oppositeTz}</div>`;
+
+                        if (entry.hadLunch) {
+                            secondaryShiftDisplay += `<div class="text-xs text-indigo-500 font-medium mt-1"><i class="fas fa-utensils mr-1"></i>1hr Lunch deducted</div>`;
+                        }
+                    }
+
+                    tr.innerHTML = `
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-medium">
+                            ${formatDate(entry.date)}
+                            <div class="text-xs text-gray-400 font-normal lg:hidden">${entry.date}</div>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                            ${shiftDisplay}
+                            ${secondaryShiftDisplay}
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700 text-right">
+                            ${entry.hours.toFixed(2)}
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700 text-right">
+                            ${formatCurrency(entry.rate)}
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-900 text-right">
+                            ${formatCurrency(entry.total)}
+                        </td>
+                        <td class="px-6 py-4 text-sm text-gray-500 truncate max-w-xs">
+                            ${entry.notes || '-'}
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                            <button onclick="deleteEntry(${entry.id})" class="text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity focus:opacity-100" title="Delete">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </td>
+                    `;
+                    tableBody.appendChild(tr);
+                });
+            });
+        }
+
+        // Copy Data to Clipboard (Spreadsheet friendly)
+        function copyToClipboard() {
+            if (entries.length === 0) {
+                showToast("No data to copy!", "warning");
+                return;
+            }
+
+            let tsvData = `Exchange Rate Applied:\t1 USD = ${currentExchangeRate} PHP\n\n`;
+            
+            // Group by week for spreadsheet formatting
+            const weeks = {};
+            entries.forEach(entry => {
+                const weekInfo = getWeekInfo(entry.date);
+                if (!weeks[weekInfo.key]) {
+                    weeks[weekInfo.key] = { label: weekInfo.label, entries: [], totalHours: 0, totalUSD: 0 };
+                }
+                weeks[weekInfo.key].entries.push(entry);
+                weeks[weekInfo.key].totalHours += entry.hours;
+                weeks[weekInfo.key].totalUSD += entry.total;
+            });
+            
+            const sortedWeekKeys = Object.keys(weeks).sort((a, b) => new Date(b) - new Date(a));
+
+            sortedWeekKeys.forEach(key => {
+                const week = weeks[key];
+                const weekPHP = week.totalUSD * currentExchangeRate;
+                
+                tsvData += `--- WEEK OF ${week.label} ---\n`;
+                tsvData += "Date\tShift\tHours\tRate(USD)\tTotal(USD)\tTotal(PHP)\tNotes\n";
+                
+                week.entries.forEach(entry => {
+                    let cleanNotes = entry.notes ? entry.notes.replace(/\t|\n/g, " ") : "";
+                    
+                    let shiftStr = "Manual";
+                    if (entry.startTime && entry.endTime) {
+                        const tz = entry.timezone || 'UTC';
+                        const oppositeTz = tz === 'UTC' ? 'PHT' : 'UTC';
+                        const offset = tz === 'UTC' ? 8 : -8;
+
+                        const convertTz = (time24) => {
+                            let [h, m] = time24.split(':').map(Number);
+                            h = (h + offset + 24) % 24;
+                            return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+                        };
+                        
+                        const startOpp = convertTz(entry.startTime);
+                        const endOpp = convertTz(entry.endTime);
+
+                        shiftStr = `${formatTime(entry.startTime)}-${formatTime(entry.endTime)} ${tz} / ${formatTime(startOpp)}-${formatTime(endOpp)} ${oppositeTz}`;
+                        if (entry.hadLunch) shiftStr += ' (Lunch deducted)';
+                    }
+                    
+                    const entryPHP = entry.total * currentExchangeRate;
+                    tsvData += `${entry.date}\t${shiftStr}\t${entry.hours}\t${entry.rate}\t${entry.total}\t${entryPHP.toFixed(2)}\t${cleanNotes}\n`;
+                });
+                
+                tsvData += `\tWEEK TOTAL:\t${week.totalHours.toFixed(2)}\t\t${week.totalUSD.toFixed(2)}\t${weekPHP.toFixed(2)}\t\n\n`;
+            });
+
+            // Grand Summary Row at the bottom
+            const grandTotalHours = entries.reduce((sum, e) => sum + e.hours, 0);
+            const grandTotalUSD = entries.reduce((sum, e) => sum + e.total, 0);
+            const grandTotalPHP = grandTotalUSD * currentExchangeRate;
+            
+            tsvData += `GRAND TOTAL\t\t${grandTotalHours.toFixed(2)}\t\t${grandTotalUSD.toFixed(2)}\t${grandTotalPHP.toFixed(2)}\t\n`;
+
+            // Use generic clipboard API
+            const textArea = document.createElement("textarea");
+            textArea.value = tsvData;
+            
+            // Avoid scrolling to bottom
+            textArea.style.top = "0";
+            textArea.style.left = "0";
+            textArea.style.position = "fixed";
+            
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+            
+            try {
+                const successful = document.execCommand('copy');
+                if (successful) {
+                    showToast("Data copied! You can now paste it into Sheets/Excel.");
+                } else {
+                    showToast("Failed to copy data.", "error");
+                }
+            } catch (err) {
+                console.error('Fallback: Oops, unable to copy', err);
+                showToast("Error copying to clipboard.", "error");
+            }
+            
+            document.body.removeChild(textArea);
+        }
+
+        // Simple Toast Notification System
+        function showToast(message, type = "success") {
+            const toast = document.createElement('div');
+            
+            // Base styles
+            toast.className = `px-4 py-3 rounded-lg shadow-lg text-sm font-medium flex items-center gap-3 toast-enter max-w-sm`;
+            
+            // Type specific styles
+            let icon = '';
+            if (type === "success") {
+                toast.classList.add('bg-gray-800', 'text-white');
+                icon = '<i class="fas fa-check-circle text-green-400"></i>';
+            } else if (type === "error") {
+                toast.classList.add('bg-red-50', 'text-red-800', 'border', 'border-red-200');
+                icon = '<i class="fas fa-exclamation-circle text-red-500"></i>';
+            } else if (type === "warning") {
+                toast.classList.add('bg-yellow-50', 'text-yellow-800', 'border', 'border-yellow-200');
+                icon = '<i class="fas fa-info-circle text-yellow-500"></i>';
+            }
+
+            toast.innerHTML = `${icon} <span>${message}</span>`;
+            toastContainer.appendChild(toast);
+
+            // Trigger animation
+            requestAnimationFrame(() => {
+                toast.classList.remove('toast-enter');
+                toast.classList.add('toast-enter-active');
+            });
+
+            // Remove after 3 seconds
+            setTimeout(() => {
+                toast.classList.remove('toast-enter-active');
+                toast.classList.add('toast-exit-active');
+                
+                toast.addEventListener('transitionend', () => {
+                    if(toast.parentNode) toast.parentNode.removeChild(toast);
+                });
+            }, 3000);
+        }
+
+        // Fetch Exchange Rate API
+        async function fetchLatestExchangeRate() {
+            const icon = fetchRateBtn.querySelector('i');
+            try {
+                icon.classList.add('fa-spin');
+                // Using a free, no-key public API for currency rates
+                const response = await fetch('https://api.exchangerate-api.com/v4/latest/USD');
+                const data = await response.json();
+                if (data && data.rates && data.rates.PHP) {
+                    currentExchangeRate = data.rates.PHP;
+                    exchangeRateInput.value = currentExchangeRate.toFixed(2);
+                    localStorage.setItem('freelanceExchangeRate', currentExchangeRate);
+                    updateSummary();
+                    renderTable();
+                    showToast(`Exchange rate auto-updated: 1 USD = ₱${currentExchangeRate.toFixed(2)}`);
+                }
+            } catch (error) {
+                console.error("Could not fetch exchange rate:", error);
+            } finally {
+                icon.classList.remove('fa-spin');
+            }
+        }
+
+        // Event Listeners for Currency settings
+        exchangeRateInput.addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value);
+            if (!isNaN(val) && val > 0) {
+                currentExchangeRate = val;
+                localStorage.setItem('freelanceExchangeRate', currentExchangeRate);
+                updateSummary();
+                renderTable();
+            }
+        });
+
+        fetchRateBtn.addEventListener('click', fetchLatestExchangeRate);
+
+        // Initialize application
+        loadData();
+
+    </script>
+</body>
+</html>
