@@ -17,6 +17,8 @@
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
   <!-- Babel Standalone CDN -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <!-- SheetJS CDN for Multi-Tab Spreadsheet Export -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   
   <script>
     tailwind.config = {
@@ -87,6 +89,17 @@
       const [searchTerm, setSearchTerm] = useState('');
       
       const [toast, setToast] = useState(null);
+
+      const updateShiftStatus = (id, newStatus) => {
+        setShifts(prev => prev.map(s => s.id === id ? { ...s, status: newStatus } : s));
+        showToast(`Shift status updated to ${newStatus}`, 'info');
+      };
+
+      const bulkUpdateStatus = (newStatus) => {
+        if (selectedShiftIds.length === 0) return;
+        setShifts(prev => prev.map(s => selectedShiftIds.includes(s.id) ? { ...s, status: newStatus } : s));
+        showToast(`Updated ${selectedShiftIds.length} shift(s) to ${newStatus}`, 'success');
+      };
 
       const [otSettings, setOtSettings] = useState(() => {
         const saved = localStorage.getItem('ft_ot_settings');
@@ -249,54 +262,130 @@
         const totalHours = filteredShifts.reduce((acc, s) => acc + s.hours, 0);
         const totalUSD = filteredShifts.reduce((acc, s) => acc + (s.totalUSD || (s.hours * s.rate)), 0);
         const pendingUSD = filteredShifts.filter(s => s.status === 'Pending').reduce((acc, s) => acc + (s.totalUSD || (s.hours * s.rate)), 0);
+        const submittedUSD = filteredShifts.filter(s => s.status === 'Submitted').reduce((acc, s) => acc + (s.totalUSD || (s.hours * s.rate)), 0);
         const paidUSD = filteredShifts.filter(s => s.status === 'Paid').reduce((acc, s) => acc + (s.totalUSD || (s.hours * s.rate)), 0);
         const totalPHP = totalUSD * fxRate;
         const avgRate = totalHours > 0 ? totalUSD / totalHours : 0;
 
-        return { totalHours, totalUSD, pendingUSD, paidUSD, totalPHP, avgRate };
+        return { totalHours, totalUSD, pendingUSD, submittedUSD, paidUSD, totalPHP, avgRate };
       }, [filteredShifts, fxRate]);
 
-      const handleExportJSON = () => {
-        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify({ shifts, fxRate, otSettings }, null, 2));
-        const downloadAnchor = document.createElement('a');
-        downloadAnchor.setAttribute("href", dataStr);
-        downloadAnchor.setAttribute("download", `freelance_tracker_backup_${new Date().toISOString().split('T')[0]}.json`);
-        document.body.appendChild(downloadAnchor);
-        downloadAnchor.click();
-        downloadAnchor.remove();
-        showToast('Data exported successfully!', 'success');
-      };
+      const handleExportCSV = () => {
+        if (shifts.length === 0) {
+          showToast('No data to export.', 'warning');
+          return;
+        }
 
-      const handleImportJSON = (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = (event) => {
+        if (typeof XLSX === 'undefined') {
+          showToast('Export library loading, please try again.', 'warning');
+          return;
+        }
+
+        // Group shifts by Month & Year (e.g. "Oct 2026", "Nov 2026")
+        const groupedByMonth = {};
+        
+        // Sort shifts chronologically before grouping
+        const sortedShifts = [...shifts].sort((a, b) => new Date(a.date) - new Date(b.date));
+
+        sortedShifts.forEach(shift => {
+          let monthYearKey = 'Unspecified Month';
           try {
-            const parsed = JSON.parse(event.target.result);
-            if (parsed.shifts && Array.isArray(parsed.shifts)) {
-              setShifts(parsed.shifts);
-              if (parsed.fxRate) setFxRate(parsed.fxRate);
-              
-              if (parsed.otSettings) {
-                setOtSettings(parsed.otSettings);
-              } else if (parsed.otMultipliers) {
-                 // Migrate older backups
-                 setOtSettings({
-                   t1: { rate: parsed.otMultipliers.t1 || 1.25, hours: 2 },
-                   t2: { rate: parsed.otMultipliers.t2 || 1.5, hours: 2 },
-                   t3: { rate: parsed.otMultipliers.t3 || 2.0 }
-                 });
-              }
-              showToast('Backup restored successfully!', 'success');
-            } else {
-              showToast('Invalid backup file format.', 'error');
+            const dateObj = new Date(shift.date);
+            if (!isNaN(dateObj)) {
+              monthYearKey = dateObj.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
             }
-          } catch (err) {
-            showToast('Error reading backup file.', 'error');
+          } catch(e) {}
+
+          if (!groupedByMonth[monthYearKey]) {
+            groupedByMonth[monthYearKey] = [];
           }
-        };
-        reader.readAsText(file);
+          groupedByMonth[monthYearKey].push(shift);
+        });
+
+        // Create Excel Workbook
+        const workbook = XLSX.utils.book_new();
+
+        // Add a worksheet for each month
+        Object.keys(groupedByMonth).forEach(monthKey => {
+          const monthShifts = groupedByMonth[monthKey];
+          
+          const rows = monthShifts.map(shift => {
+            const shiftTotalUSD = shift.totalUSD !== undefined ? shift.totalUSD : (shift.hours * shift.rate);
+            const shiftTotalPHP = shiftTotalUSD * fxRate;
+
+            let formattedDate = shift.date;
+            try {
+              const dateObj = new Date(shift.date);
+              if (!isNaN(dateObj)) {
+                formattedDate = dateObj.toLocaleDateString('en-US', { 
+                  year: 'numeric', month: 'short', day: 'numeric' 
+                });
+              }
+            } catch(e) {}
+
+            return {
+              'Date': formattedDate,
+              'Task / Notes': shift.notes || 'No notes',
+              'Status': shift.status || 'Pending',
+              'Total Hours': shift.hours,
+              'Base Rate ($)': shift.rate,
+              'Total Earned ($)': Number(shiftTotalUSD.toFixed(2)),
+              'Est. Peso (PHP)': Number(shiftTotalPHP.toFixed(2)),
+              'Overtime Breakdown': shift.otBreakdown || 'None'
+            };
+          });
+
+          // Calculate Grand Totals for this sheet
+          const monthTotalHours = monthShifts.reduce((sum, s) => sum + s.hours, 0);
+          const monthTotalUSD = monthShifts.reduce((sum, s) => sum + (s.totalUSD !== undefined ? s.totalUSD : (s.hours * s.rate)), 0);
+          const monthTotalPHP = monthTotalUSD * fxRate;
+
+          // Blank separator row
+          rows.push({
+            'Date': '',
+            'Task / Notes': '',
+            'Status': '',
+            'Total Hours': '',
+            'Base Rate ($)': '',
+            'Total Earned ($)': '',
+            'Est. Peso (PHP)': '',
+            'Overtime Breakdown': ''
+          });
+
+          // Grand Total row
+          rows.push({
+            'Date': 'GRAND TOTAL',
+            'Task / Notes': `Total Entries: ${monthShifts.length}`,
+            'Status': '',
+            'Total Hours': Number(monthTotalHours.toFixed(2)),
+            'Base Rate ($)': '',
+            'Total Earned ($)': Number(monthTotalUSD.toFixed(2)),
+            'Est. Peso (PHP)': Number(monthTotalPHP.toFixed(2)),
+            'Overtime Breakdown': ''
+          });
+
+          const worksheet = XLSX.utils.json_to_sheet(rows);
+
+          // Custom column widths for clean readability
+          worksheet['!cols'] = [
+            { wch: 14 }, // Date
+            { wch: 32 }, // Notes
+            { wch: 12 }, // Status
+            { wch: 12 }, // Hours
+            { wch: 14 }, // Base Rate
+            { wch: 16 }, // Earned USD
+            { wch: 16 }, // Earned PHP
+            { wch: 26 }  // OT Breakdown
+          ];
+
+          // Sheet names are capped at 30 chars
+          const cleanSheetName = monthKey.replace(/[:\\/?*\[\]]/g, '').slice(0, 30);
+          XLSX.utils.book_append_sheet(workbook, worksheet, cleanSheetName);
+        });
+
+        // Save file
+        XLSX.writeFile(workbook, `Freelance_Tracker_${new Date().toISOString().split('T')[0]}.xlsx`);
+        showToast('Exported multi-tab spreadsheet with Grand Totals!', 'success');
       };
 
       const fetchLiveExchangeRate = async () => {
@@ -372,18 +461,12 @@
                 </div>
 
                 <button 
-                  onClick={handleExportJSON}
-                  className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors border border-slate-700 flex items-center gap-1.5"
+                  onClick={handleExportCSV}
+                  className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-emerald-900/60 text-slate-300 hover:text-emerald-400 transition-colors border border-slate-700 hover:border-emerald-700 flex items-center gap-1.5"
                 >
-                  <i className="fas fa-download text-slate-400"></i>
-                  <span>Export</span>
+                  <i className="fas fa-file-csv"></i>
+                  <span>Export to Sheets</span>
                 </button>
-
-                <label className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors border border-slate-700 cursor-pointer flex items-center gap-1.5">
-                  <i className="fas fa-upload text-slate-400"></i>
-                  <span>Import</span>
-                  <input type="file" accept=".json" onChange={handleImportJSON} className="hidden" />
-                </label>
               </div>
             </div>
           </header>
@@ -412,9 +495,10 @@
                   </div>
                 </div>
                 <div className="text-2xl font-extrabold text-emerald-400">${stats.totalUSD.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                <div className="text-xs text-slate-400 mt-2 flex justify-between">
-                  <span>Paid: <strong className="text-emerald-300">${stats.paidUSD.toFixed(0)}</strong></span>
+                <div className="text-[11px] text-slate-400 mt-2 flex flex-wrap gap-x-2 gap-y-1">
                   <span>Pending: <strong className="text-amber-300">${stats.pendingUSD.toFixed(0)}</strong></span>
+                  <span>Submitted: <strong className="text-sky-300">${stats.submittedUSD.toFixed(0)}</strong></span>
+                  <span>Paid: <strong className="text-emerald-300">${stats.paidUSD.toFixed(0)}</strong></span>
                 </div>
               </div>
 
@@ -561,9 +645,9 @@
                       onChange={(e) => setFormData({...formData, status: e.target.value})}
                       className="w-full bg-slate-800/90 border border-slate-700/80 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-brand-500 transition-colors"
                     >
-                      <option value="Pending">Pending</option>
-                      <option value="Invoiced">Invoiced</option>
-                      <option value="Paid">Paid</option>
+                      <option value="Pending">Pending (Not yet paid)</option>
+                      <option value="Submitted">Submitted (PO / Invoice sent)</option>
+                      <option value="Paid">Paid (Payment received)</option>
                     </select>
                   </div>
 
@@ -601,7 +685,7 @@
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
-                    <div className="relative flex-1 md:w-56">
+                    <div className="relative flex-1 md:w-48">
                       <i className="fas fa-search absolute left-3 top-2.5 text-slate-500 text-xs"></i>
                       <input 
                         type="text" 
@@ -619,7 +703,7 @@
                     >
                       <option value="ALL">All Status</option>
                       <option value="Pending">Pending</option>
-                      <option value="Invoiced">Invoiced</option>
+                      <option value="Submitted">Submitted</option>
                       <option value="Paid">Paid</option>
                     </select>
 
@@ -642,6 +726,37 @@
                     </button>
                   </div>
                 </div>
+
+                {/* Bulk status update bar when items are checked */}
+                {selectedShiftIds.length > 0 && (
+                  <div className="bg-brand-950/60 border border-brand-800/80 rounded-xl px-4 py-2.5 flex flex-wrap items-center justify-between gap-3 text-xs">
+                    <span className="text-brand-200 font-medium flex items-center gap-2">
+                      <i className="fas fa-check-square text-brand-400"></i>
+                      {selectedShiftIds.length} shift(s) selected:
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-slate-400 text-[11px]">Set status to:</span>
+                      <button 
+                        onClick={() => bulkUpdateStatus('Pending')}
+                        className="px-2.5 py-1 rounded-lg bg-amber-950/80 border border-amber-800 text-amber-300 hover:bg-amber-900 text-[11px] font-semibold transition-colors"
+                      >
+                        Pending
+                      </button>
+                      <button 
+                        onClick={() => bulkUpdateStatus('Submitted')}
+                        className="px-2.5 py-1 rounded-lg bg-sky-950/80 border border-sky-800 text-sky-300 hover:bg-sky-900 text-[11px] font-semibold transition-colors"
+                      >
+                        Submitted
+                      </button>
+                      <button 
+                        onClick={() => bulkUpdateStatus('Paid')}
+                        className="px-2.5 py-1 rounded-lg bg-emerald-950/80 border border-emerald-800 text-emerald-300 hover:bg-emerald-900 text-[11px] font-semibold transition-colors"
+                      >
+                        Paid
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 <div className="bg-slate-900/80 border border-slate-800 rounded-2xl shadow-xl overflow-x-auto">
                   {filteredShifts.length === 0 ? (
@@ -717,14 +832,22 @@
                               <td className="py-3 px-3 text-right font-mono text-slate-300">
                                 ₱{shiftTotalPHP.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                               </td>
+                              {}
                               <td className="py-3 px-3 text-center whitespace-nowrap">
-                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
-                                  shift.status === 'Paid' ? 'bg-emerald-950/80 text-emerald-300 border-emerald-800' :
-                                  shift.status === 'Invoiced' ? 'bg-indigo-950/80 text-indigo-300 border-indigo-800' :
-                                  'bg-amber-950/80 text-amber-300 border-amber-800'
-                                }`}>
-                                  {shift.status}
-                                </span>
+                                <select 
+                                  value={shift.status || 'Pending'}
+                                  onChange={(e) => updateShiftStatus(shift.id, e.target.value)}
+                                  className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border cursor-pointer focus:outline-none transition-colors ${
+                                    shift.status === 'Paid' ? 'bg-emerald-950/90 text-emerald-300 border-emerald-700 hover:bg-emerald-900' :
+                                    shift.status === 'Submitted' ? 'bg-sky-950/90 text-sky-300 border-sky-700 hover:bg-sky-900' :
+                                    'bg-amber-950/90 text-amber-300 border-amber-700 hover:bg-amber-900'
+                                  }`}
+                                  title="Click to change status for this entry"
+                                >
+                                  <option value="Pending" className="bg-slate-900 text-amber-300">Pending</option>
+                                  <option value="Submitted" className="bg-slate-900 text-sky-300">Submitted</option>
+                                  <option value="Paid" className="bg-slate-900 text-emerald-300">Paid</option>
+                                </select>
                               </td>
                               <td className="py-3 px-4 text-center whitespace-nowrap">
                                 <button 
@@ -746,7 +869,7 @@
                 <div className="text-xs text-slate-500 flex items-center justify-between px-2 pt-2">
                   <span className="flex items-center gap-1.5">
                     <i className="fas fa-shield-alt text-emerald-500"></i>
-                    Data stored locally in your browser. Use Export to back up.
+                    Data stored locally in your browser. Export periodically.
                   </span>
                   <span>{shifts.length} Total Shift Records</span>
                 </div>
@@ -757,25 +880,32 @@
 
           {}
           {isInvoiceModalOpen && (
-            <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-3xl w-full p-6 sm:p-8 shadow-2xl relative my-8">
+            <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-start justify-center p-4 sm:p-8 overflow-y-auto">
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-3xl w-full p-6 sm:p-8 shadow-2xl relative my-4 sm:my-8 shrink-0">
                 
-                <div className="flex items-center justify-between border-b border-slate-800 pb-4 mb-6 no-print">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between border-b border-slate-800 pb-4 mb-6 gap-4 no-print">
                   <h3 className="text-lg font-bold text-white flex items-center gap-2">
                     <i className="fas fa-file-invoice text-emerald-400"></i> Invoice Preview
                   </h3>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-end">
+                    <button 
+                      onClick={() => bulkUpdateStatus('Submitted')}
+                      className="px-3 py-2 rounded-xl bg-sky-900/60 hover:bg-sky-800 border border-sky-700 text-sky-200 font-medium text-xs transition-colors flex items-center gap-1.5"
+                      title="Mark selected shifts as Submitted"
+                    >
+                      <i className="fas fa-paper-plane"></i> Mark as Submitted
+                    </button>
                     <button 
                       onClick={() => window.print()}
                       className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-xs transition-colors flex items-center gap-1.5 shadow-lg shadow-emerald-600/30"
                     >
-                      <i className="fas fa-print"></i> Print / Save PDF
+                      <i className="fas fa-print"></i> Print / PDF
                     </button>
                     <button 
                       onClick={() => setIsInvoiceModalOpen(false)}
-                      className="p-2 text-slate-400 hover:text-white transition-colors"
+                      className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-rose-500/20 hover:text-rose-400 border border-slate-700 hover:border-rose-500/50 text-slate-300 font-medium text-xs transition-colors flex items-center gap-1.5"
                     >
-                      <i className="fas fa-times text-lg"></i>
+                      <i className="fas fa-times"></i> Close
                     </button>
                   </div>
                 </div>
