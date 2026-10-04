@@ -152,11 +152,10 @@
           };
         }
 
-        let earnings = 8 * baseRate; // Regular pay for first 8 hrs
+        let earnings = 8 * baseRate; 
         let otHours = totalHours - 8;
         let breakdownParts = ['8hrs Reg'];
         
-        // Tier 1 (e.g., next 2 hours)
         if (otHours > 0) {
            let t1Hours = Math.min(otHours, settings.t1.hours);
            earnings += (t1Hours * baseRate * settings.t1.rate);
@@ -164,7 +163,6 @@
            otHours -= t1Hours;
         }
 
-        // Tier 2 (e.g., next 2 hours)
         if (otHours > 0) {
            let t2Hours = Math.min(otHours, settings.t2.hours);
            earnings += (t2Hours * baseRate * settings.t2.rate);
@@ -172,7 +170,6 @@
            otHours -= t2Hours;
         }
 
-        // Tier 3 (Remaining hours)
         if (otHours > 0) {
            earnings += (otHours * baseRate * settings.t3.rate);
            breakdownParts.push(`${otHours}h @${settings.t3.rate}x`);
@@ -227,6 +224,11 @@
       const [invoiceClient, setInvoiceClient] = useState('');
       const [deleteConfirmId, setDeleteConfirmId] = useState(null);
 
+      // New Invoice Metadata States
+      const [invPoNumber, setInvPoNumber] = useState('');
+      const [invRips, setInvRips] = useState('');
+      const [invPeriod, setInvPeriod] = useState('');
+
       const toggleSelectShift = (id) => {
         setSelectedShiftIds(prev => 
           prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
@@ -270,6 +272,53 @@
         return { totalHours, totalUSD, pendingUSD, submittedUSD, paidUSD, totalPHP, avgRate };
       }, [filteredShifts, fxRate]);
 
+      const generateInvoiceNumber = () => {
+        const today = new Date();
+        const yyyy = today.getFullYear();
+        const mm = String(today.getMonth() + 1).padStart(2, '0');
+        const prefix = `INV-${yyyy}-${mm}-`;
+        
+        const existingInvoices = shifts
+          .map(s => s.invoice?.invoiceNo)
+          .filter(no => no && no.startsWith(prefix));
+          
+        const uniqueInvoices = [...new Set(existingInvoices)];
+        
+        let maxNum = 0;
+        uniqueInvoices.forEach(inv => {
+          const parts = inv.split('-');
+          const num = parseInt(parts[3], 10);
+          if (num > maxNum) maxNum = num;
+        });
+        
+        const nextNum = String(maxNum + 1).padStart(3, '0');
+        return `${prefix}${nextNum}`;
+      };
+
+      const submitInvoice = () => {
+        const invNo = generateInvoiceNumber();
+        
+        setShifts(prev => prev.map(s => {
+          if (selectedShiftIds.includes(s.id)) {
+            return {
+              ...s,
+              status: 'Submitted',
+              invoice: {
+                invoiceNo: invNo,
+                poNumber: invPoNumber || 'TBD',
+                rips: invRips || 'N/A',
+                period: invPeriod || 'Unspecified'
+              }
+            };
+          }
+          return s;
+        }));
+
+        showToast(`Invoice ${invNo} generated & attached to shifts!`, 'success');
+        setIsInvoiceModalOpen(false);
+        setSelectedShiftIds([]);
+      };
+
       const handleExportCSV = () => {
         if (shifts.length === 0) {
           showToast('No data to export.', 'warning');
@@ -281,111 +330,139 @@
           return;
         }
 
-        // Group shifts by Month & Year (e.g. "Oct 2026", "Nov 2026")
-        const groupedByMonth = {};
-        
-        // Sort shifts chronologically before grouping
+        const workbook = XLSX.utils.book_new();
+
+        // Grouping
+        const uninvoicedByMonth = {};
+        const invoicedGroups = {}; 
+
         const sortedShifts = [...shifts].sort((a, b) => new Date(a.date) - new Date(b.date));
 
         sortedShifts.forEach(shift => {
-          let monthYearKey = 'Unspecified Month';
-          try {
-            const dateObj = new Date(shift.date);
-            if (!isNaN(dateObj)) {
-              monthYearKey = dateObj.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-            }
-          } catch(e) {}
-
-          if (!groupedByMonth[monthYearKey]) {
-            groupedByMonth[monthYearKey] = [];
-          }
-          groupedByMonth[monthYearKey].push(shift);
-        });
-
-        // Create Excel Workbook
-        const workbook = XLSX.utils.book_new();
-
-        // Add a worksheet for each month
-        Object.keys(groupedByMonth).forEach(monthKey => {
-          const monthShifts = groupedByMonth[monthKey];
-          
-          const rows = monthShifts.map(shift => {
-            const shiftTotalUSD = shift.totalUSD !== undefined ? shift.totalUSD : (shift.hours * shift.rate);
-            const shiftTotalPHP = shiftTotalUSD * fxRate;
-
-            let formattedDate = shift.date;
+          if (shift.invoice && shift.invoice.invoiceNo) {
+            const invNo = shift.invoice.invoiceNo;
+            if (!invoicedGroups[invNo]) invoicedGroups[invNo] = [];
+            invoicedGroups[invNo].push(shift);
+          } else {
+            let monthYearKey = 'Pending - Unspecified';
             try {
               const dateObj = new Date(shift.date);
               if (!isNaN(dateObj)) {
-                formattedDate = dateObj.toLocaleDateString('en-US', { 
-                  year: 'numeric', month: 'short', day: 'numeric' 
-                });
+                monthYearKey = 'Pending - ' + dateObj.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
               }
             } catch(e) {}
-
-            return {
-              'Date': formattedDate,
-              'Task / Notes': shift.notes || 'No notes',
-              'Status': shift.status || 'Pending',
-              'Total Hours': shift.hours,
-              'Base Rate ($)': shift.rate,
-              'Total Earned ($)': Number(shiftTotalUSD.toFixed(2)),
-              'Est. Peso (PHP)': Number(shiftTotalPHP.toFixed(2)),
-              'Overtime Breakdown': shift.otBreakdown || 'None'
-            };
-          });
-
-          // Calculate Grand Totals for this sheet
-          const monthTotalHours = monthShifts.reduce((sum, s) => sum + s.hours, 0);
-          const monthTotalUSD = monthShifts.reduce((sum, s) => sum + (s.totalUSD !== undefined ? s.totalUSD : (s.hours * s.rate)), 0);
-          const monthTotalPHP = monthTotalUSD * fxRate;
-
-          // Blank separator row
-          rows.push({
-            'Date': '',
-            'Task / Notes': '',
-            'Status': '',
-            'Total Hours': '',
-            'Base Rate ($)': '',
-            'Total Earned ($)': '',
-            'Est. Peso (PHP)': '',
-            'Overtime Breakdown': ''
-          });
-
-          // Grand Total row
-          rows.push({
-            'Date': 'GRAND TOTAL',
-            'Task / Notes': `Total Entries: ${monthShifts.length}`,
-            'Status': '',
-            'Total Hours': Number(monthTotalHours.toFixed(2)),
-            'Base Rate ($)': '',
-            'Total Earned ($)': Number(monthTotalUSD.toFixed(2)),
-            'Est. Peso (PHP)': Number(monthTotalPHP.toFixed(2)),
-            'Overtime Breakdown': ''
-          });
-
-          const worksheet = XLSX.utils.json_to_sheet(rows);
-
-          // Custom column widths for clean readability
-          worksheet['!cols'] = [
-            { wch: 14 }, // Date
-            { wch: 32 }, // Notes
-            { wch: 12 }, // Status
-            { wch: 12 }, // Hours
-            { wch: 14 }, // Base Rate
-            { wch: 16 }, // Earned USD
-            { wch: 16 }, // Earned PHP
-            { wch: 26 }  // OT Breakdown
-          ];
-
-          // Sheet names are capped at 30 chars
-          const cleanSheetName = monthKey.replace(/[:\\/?*\[\]]/g, '').slice(0, 30);
-          XLSX.utils.book_append_sheet(workbook, worksheet, cleanSheetName);
+            if (!uninvoicedByMonth[monthYearKey]) uninvoicedByMonth[monthYearKey] = [];
+            uninvoicedByMonth[monthYearKey].push(shift);
+          }
         });
 
-        // Save file
+        // 1. Process Invoiced Groups (PO separated tabs)
+        Object.keys(invoicedGroups).forEach(invNo => {
+          const group = invoicedGroups[invNo];
+          const invData = group[0].invoice;
+          
+          let actualHours = 0;
+          let amount = 0;
+          let poEqHours = 0;
+          
+          group.forEach(s => {
+            actualHours += s.hours;
+            const sTotal = (s.totalUSD !== undefined ? s.totalUSD : (s.hours * s.rate));
+            amount += sTotal;
+            poEqHours += (sTotal / (s.rate || 1));
+          });
+
+          const domStatus = group.every(s => s.status === 'Paid') ? 'Paid' : 'Submitted';
+
+          const aoa = [];
+          aoa.push([`Invoice: ${invData.invoiceNo}`]);
+          aoa.push([`PO: ${invData.poNumber}`]);
+          aoa.push([`RIPS: ${invData.rips}`]);
+          aoa.push([`Period: ${invData.period}`]);
+          aoa.push([`Actual hours: ${actualHours.toFixed(2)}`]);
+          aoa.push([`PO equivalent hours: ${poEqHours.toFixed(2)}`]);
+          aoa.push([`Amount: $${amount.toFixed(2)}`]);
+          aoa.push([`Status: ${domStatus}`]);
+          aoa.push([]); // Empty row
+          aoa.push(['Date', 'Task / Notes', 'Status', 'Total Hours', 'Base Rate ($)', 'Total Earned ($)', 'Est. Peso (PHP)', 'Overtime Breakdown']);
+          
+          group.forEach(s => {
+             let formattedDate = s.date;
+             try {
+                const d = new Date(s.date);
+                if(!isNaN(d)) formattedDate = d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+             } catch(e){}
+             
+             const sTotal = s.totalUSD !== undefined ? s.totalUSD : (s.hours * s.rate);
+             aoa.push([
+               formattedDate,
+               s.notes || 'No notes',
+               s.status,
+               s.hours,
+               s.rate,
+               Number(sTotal.toFixed(2)),
+               Number((sTotal * fxRate).toFixed(2)),
+               s.otBreakdown || 'None'
+             ]);
+          });
+
+          const worksheet = XLSX.utils.aoa_to_sheet(aoa);
+          worksheet['!cols'] = [
+            { wch: 14 }, { wch: 32 }, { wch: 12 }, { wch: 12 }, { wch: 14 }, { wch: 16 }, { wch: 16 }, { wch: 26 }
+          ];
+          
+          let sheetName = invData.period || invData.poNumber || invNo;
+          sheetName = sheetName.replace(/[:\\/?*\[\]]/g, '').slice(0, 30);
+          XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+        });
+
+        // 2. Process Uninvoiced Groups (Pending tabs)
+        Object.keys(uninvoicedByMonth).forEach(monthKey => {
+           const group = uninvoicedByMonth[monthKey];
+           const aoa = [];
+           aoa.push([monthKey.toUpperCase()]);
+           aoa.push([]);
+           aoa.push(['Date', 'Task / Notes', 'Status', 'Total Hours', 'Base Rate ($)', 'Total Earned ($)', 'Est. Peso (PHP)', 'Overtime Breakdown']);
+           
+           let totalHrs = 0;
+           let totalUsd = 0;
+
+           group.forEach(s => {
+              let formattedDate = s.date;
+              try {
+                 const d = new Date(s.date);
+                 if(!isNaN(d)) formattedDate = d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+              } catch(e){}
+              
+              totalHrs += s.hours;
+              const sTotal = s.totalUSD !== undefined ? s.totalUSD : (s.hours * s.rate);
+              totalUsd += sTotal;
+
+              aoa.push([
+                formattedDate,
+                s.notes || 'No notes',
+                s.status,
+                s.hours,
+                s.rate,
+                Number(sTotal.toFixed(2)),
+                Number((sTotal * fxRate).toFixed(2)),
+                s.otBreakdown || 'None'
+              ]);
+           });
+           
+           aoa.push([]);
+           aoa.push(['GRAND TOTAL', `Total Entries: ${group.length}`, '', Number(totalHrs.toFixed(2)), '', Number(totalUsd.toFixed(2)), Number((totalUsd * fxRate).toFixed(2)), '']);
+
+           const worksheet = XLSX.utils.aoa_to_sheet(aoa);
+           worksheet['!cols'] = [
+            { wch: 14 }, { wch: 32 }, { wch: 12 }, { wch: 12 }, { wch: 14 }, { wch: 16 }, { wch: 16 }, { wch: 26 }
+           ];
+           let sheetName = monthKey.replace(/[:\\/?*\[\]]/g, '').slice(0, 30);
+           XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+        });
+
         XLSX.writeFile(workbook, `Freelance_Tracker_${new Date().toISOString().split('T')[0]}.xlsx`);
-        showToast('Exported multi-tab spreadsheet with Grand Totals!', 'success');
+        showToast('Exported structured spreadsheet with PO tabs!', 'success');
       };
 
       const fetchLiveExchangeRate = async () => {
@@ -517,7 +594,6 @@
 
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
               
-              {}
               <div className="lg:col-span-4 bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-xl h-fit sticky top-24">
                 <h2 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
                   <i className="fas fa-plus-circle text-brand-400"></i> Log Shift
@@ -575,7 +651,6 @@
                     
                     {showOTSettings && (
                       <div className="mt-3 space-y-2.5 p-3 bg-slate-800/50 rounded-xl border border-slate-700/50 text-xs">
-                        {/* Tier 1 */}
                         <div className="flex items-center justify-between gap-2">
                           <span className="text-slate-400 font-medium w-11">Tier 1</span>
                           <div className="flex items-center gap-1.5 flex-1 justify-center">
@@ -597,7 +672,6 @@
                           </div>
                         </div>
 
-                        {/* Tier 2 */}
                         <div className="flex items-center justify-between gap-2">
                           <span className="text-slate-400 font-medium w-11">Tier 2</span>
                           <div className="flex items-center gap-1.5 flex-1 justify-center">
@@ -619,7 +693,6 @@
                           </div>
                         </div>
 
-                        {/* Tier 3 */}
                         <div className="flex items-center justify-between gap-2 border-t border-slate-700/50 pt-2.5">
                           <span className="text-slate-400 font-medium w-11">Tier 3</span>
                           <div className="flex items-center gap-1.5 flex-1 justify-end pr-2">
@@ -671,7 +744,6 @@
                 </form>
               </div>
 
-              {}
               <div className="lg:col-span-8 space-y-4">
                 
                 <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 shadow-xl flex flex-col md:flex-row items-center justify-between gap-4">
@@ -713,6 +785,9 @@
                           showToast('Select at least one shift to generate an invoice.', 'warning');
                           return;
                         }
+                        setInvPoNumber('');
+                        setInvRips('');
+                        setInvPeriod('');
                         setIsInvoiceModalOpen(true);
                       }}
                       className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all ${
@@ -727,7 +802,6 @@
                   </div>
                 </div>
 
-                {/* Bulk status update bar when items are checked */}
                 {selectedShiftIds.length > 0 && (
                   <div className="bg-brand-950/60 border border-brand-800/80 rounded-xl px-4 py-2.5 flex flex-wrap items-center justify-between gap-3 text-xs">
                     <span className="text-brand-200 font-medium flex items-center gap-2">
@@ -819,6 +893,11 @@
                                      <i className="fas fa-calculator mr-1 opacity-70"></i>{shift.otBreakdown}
                                    </div>
                                 )}
+                                {shift.invoice && shift.invoice.invoiceNo && (
+                                   <div className="text-[9px] text-sky-400 mt-1 font-medium tracking-wide">
+                                     <i className="fas fa-file-invoice mr-1 opacity-70"></i>{shift.invoice.invoiceNo}
+                                   </div>
+                                )}
                               </td>
                               <td className="py-3 px-3 text-right font-mono text-slate-200">
                                 {shift.hours.toFixed(2)}
@@ -832,7 +911,6 @@
                               <td className="py-3 px-3 text-right font-mono text-slate-300">
                                 ₱{shiftTotalPHP.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                               </td>
-                              {}
                               <td className="py-3 px-3 text-center whitespace-nowrap">
                                 <select 
                                   value={shift.status || 'Pending'}
@@ -866,7 +944,7 @@
                   )}
                 </div>
 
-                <div className="text-xs text-slate-500 flex items-center justify-between px-2 pt-2">
+                <div className="text-xs text-slate-500 flex flex-wrap items-center justify-between px-2 pt-2 gap-2">
                   <span className="flex items-center gap-1.5">
                     <i className="fas fa-shield-alt text-emerald-500"></i>
                     Data stored locally in your browser. Export periodically.
@@ -878,22 +956,21 @@
             </div>
           </main>
 
-          {}
           {isInvoiceModalOpen && (
             <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-start justify-center p-4 sm:p-8 overflow-y-auto">
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-3xl w-full p-6 sm:p-8 shadow-2xl relative my-4 sm:my-8 shrink-0">
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-4xl w-full p-6 sm:p-8 shadow-2xl relative my-4 sm:my-8 shrink-0">
                 
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between border-b border-slate-800 pb-4 mb-6 gap-4 no-print">
                   <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                    <i className="fas fa-file-invoice text-emerald-400"></i> Invoice Preview
+                    <i className="fas fa-file-invoice text-emerald-400"></i> Generate & Submit Invoice
                   </h3>
                   <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-end">
                     <button 
-                      onClick={() => bulkUpdateStatus('Submitted')}
-                      className="px-3 py-2 rounded-xl bg-sky-900/60 hover:bg-sky-800 border border-sky-700 text-sky-200 font-medium text-xs transition-colors flex items-center gap-1.5"
-                      title="Mark selected shifts as Submitted"
+                      onClick={submitInvoice}
+                      className="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-medium text-xs transition-colors flex items-center gap-1.5 shadow-lg shadow-sky-600/30"
+                      title="Attach PO Data and Mark as Submitted"
                     >
-                      <i className="fas fa-paper-plane"></i> Mark as Submitted
+                      <i className="fas fa-paper-plane"></i> Attach Data & Submit
                     </button>
                     <button 
                       onClick={() => window.print()}
@@ -910,12 +987,37 @@
                   </div>
                 </div>
 
+                {/* Export & PO Metadata Form (No-print) */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6 no-print bg-slate-800/50 p-4 rounded-xl border border-slate-700">
+                  <div className="sm:col-span-3 pb-2 border-b border-slate-700/50">
+                    <h4 className="text-sm font-semibold text-brand-300 flex items-center gap-2">
+                      <i className="fas fa-tags"></i> Billing & Export Metadata
+                    </h4>
+                    <p className="text-[11px] text-slate-400 mt-1">Fill this out before clicking "Attach Data & Submit" to format your CSV exports properly.</p>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-400 mb-1">PO Number</label>
+                    <input type="text" value={invPoNumber} onChange={(e)=>setInvPoNumber(e.target.value)} placeholder="e.g. PO-99921" className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-brand-500" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-400 mb-1">RIPS</label>
+                    <input type="text" value={invRips} onChange={(e)=>setInvRips(e.target.value)} placeholder="e.g. RIPS-2026" className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-brand-500" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-400 mb-1">Pay Period</label>
+                    <input type="text" value={invPeriod} onChange={(e)=>setInvPeriod(e.target.value)} placeholder="e.g. Oct 1-15, 2026" className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-brand-500" />
+                  </div>
+                </div>
+
                 <div id="printable-invoice" className="bg-white text-slate-900 p-8 rounded-xl space-y-6">
                   <div className="flex justify-between items-start border-b border-slate-200 pb-6">
                     <div>
                       <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tight">INVOICE</h2>
-                      <p className="text-xs text-slate-500 mt-1">Invoice #: INV-{Date.now().toString().slice(-6)}</p>
+                      <p className="text-xs text-slate-500 mt-1">Invoice #: {generateInvoiceNumber()}</p>
                       <p className="text-xs text-slate-500">Date: {new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
+                      {invPoNumber && <p className="text-xs text-slate-500 mt-2 font-medium">PO: {invPoNumber}</p>}
+                      {invRips && <p className="text-xs text-slate-500 font-medium">RIPS: {invRips}</p>}
+                      {invPeriod && <p className="text-xs text-slate-500 font-medium">Period: {invPeriod}</p>}
                     </div>
                     <div className="text-right">
                       <h3 className="font-bold text-slate-800 text-sm">Freelance Services</h3>
